@@ -1888,3 +1888,12 @@ showPlayOverlay() {
         console.warn('Оверлей воспроизведения не найден');
     }
 }
+
+} // Закрываем класс VideoManager
+
+// Создаём экземпляр VideoManager и инициализируем его
+const videoManager = new VideoManager();
+videoManager.init().catch(error => {
+    console.error('Ошибка инициализации VideoManager:', error);
+    videoManager.showNotification('Не удалось запустить приложение: ' + error.message);
+});
