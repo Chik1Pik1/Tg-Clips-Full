@@ -1,5 +1,13 @@
+import { createClient } from '@supabase/supabase-js';
+
 class VideoManager {
     constructor() {
+        // Инициализация Supabase
+        this.supabase = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_ANON_KEY
+        );
+
         this.state = {
             currentVideo: null,
             playlist: [],
@@ -23,10 +31,6 @@ class VideoManager {
             endY: 0,
         };
         this.tg = window.Telegram?.WebApp;
-        // Используем домен Vercel для продакшена
-        this.apiBaseUrl = window.location.hostname.includes('localhost')
-            ? 'http://localhost:3000/api'
-            : 'https://tg-clips-fra1-flm9z-1745242694445-9da66ce2b0fd.vercel.app/api';
         this.MAX_PRELOAD_SIZE = 3;
         this.MAX_PLAYLIST_SIZE = 10;
         this.DEFAULT_AVATAR_URL = 'https://via.placeholder.com/40';
@@ -295,18 +299,18 @@ class VideoManager {
         console.log('Введённая ссылка:', channelLink);
         if (channelLink && channelLink.match(/^https:\/\/t\.me\/[a-zA-Z0-9_]+$/)) {
             try {
-                console.log('Отправка запроса на регистрацию канала:', `${this.apiBaseUrl}/register-channel`);
-                const response = await fetch(`${this.apiBaseUrl}/register-channel`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: this.state.userId, channel_link: channelLink }),
-                });
-                console.log('Ответ /api/register-channel:', response.status);
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Ошибка сервера: ${response.status} ${errorText}`);
+                const { error } = await this.supabase
+                    .from('channels')
+                    .upsert({
+                        user_id: this.state.userId,
+                        channel_name: channelLink,
+                        created_at: new Date().toISOString(),
+                    });
+
+                if (error) {
+                    throw new Error(`Ошибка Supabase: ${error.message}`);
                 }
-                const result = await response.json();
+
                 this.state.channels[this.state.userId] = { videos: [], link: channelLink };
                 localStorage.setItem('channels', JSON.stringify(this.state.channels));
                 console.log('Каналы после регистрации:', this.state.channels);
@@ -333,26 +337,20 @@ class VideoManager {
 
     async loadInitialVideos() {
         try {
-            console.log('Попытка загрузить видео с сервера:', `${this.apiBaseUrl}/public-videos`);
-            const response = await this.retry(
-                () =>
-                    fetch(`${this.apiBaseUrl}/public-videos`, {
-                        method: 'GET',
-                        headers: { 'Content-Type': 'application/json' },
-                    }),
-                3,
-                1000
-            );
-            console.log('Ответ /api/public-videos:', response.status);
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка сервера: ${response.status} ${errorText}`);
-            }
-            const data = await response.json();
-            console.log('Полученные данные:', data);
+            console.log('Попытка загрузить видео из Supabase: publicVideos');
+            const { data, error } = await this.supabase
+                .from('publicVideos')
+                .select('*')
+                .eq('is_public', true);
 
-            if (!data || !Array.isArray(data) || data.length === 0) {
-                console.warn('Сервер вернул пустой или некорректный ответ, используем стоковые видео');
+            if (error) {
+                throw new Error(`Ошибка Supabase: ${error.message}`);
+            }
+
+            console.log('Полученные данные из Supabase:', data);
+
+            if (!data || data.length === 0) {
+                console.warn('Supabase вернул пустой ответ, используем стоковые видео');
                 this.state.playlist = [...this.STOCK_VIDEOS];
             } else {
                 this.state.playlist = data.map(video => ({
@@ -377,8 +375,8 @@ class VideoManager {
                 this.state.playlist.push(...this.STOCK_VIDEOS);
             }
         } catch (error) {
-            console.error('Ошибка загрузки видео с сервера:', error);
-            this.showNotification(`Не удалось загрузить видео с сервера: ${error.message}`);
+            console.error('Ошибка загрузки видео из Supabase:', error);
+            this.showNotification('Не удалось загрузить видео, показываем стоковые');
             this.state.playlist = [...this.STOCK_VIDEOS];
         }
 
@@ -437,30 +435,22 @@ class VideoManager {
         }
 
         let videoUrl = this.state.playlist[this.state.currentIndex].url;
-        let signedUrl = videoUrl;
         const isStockVideo = this.STOCK_VIDEOS.some(v => v.url === videoUrl);
 
-        if (!isStockVideo) {
+        let signedUrl = videoUrl;
+        if (!isStockVideo && videoUrl.includes('supabase.co/storage')) {
             try {
-                console.log('Получение signed URL для:', videoUrl);
-                const response = await this.retry(
-                    () =>
-                        fetch(`${this.apiBaseUrl}/download-video?url=${encodeURIComponent(videoUrl)}`, {
-                            method: 'GET',
-                            headers: { 'Content-Type': 'application/json' },
-                        }),
-                    3,
-                    1000
-                );
-                console.log('Ответ /api/download-video:', response.status);
-                if (response.ok) {
-                    const { signedUrl: url } = await response.json();
-                    signedUrl = url;
-                    console.log('Signed URL получен:', signedUrl);
-                } else {
-                    const errorText = await response.text();
-                    throw new Error(errorText);
+                console.log('Получение signed URL для Supabase Storage:', videoUrl);
+                const fileName = videoUrl.split('/').pop();
+                const { data, error } = await this.supabase.storage
+                    .from('videos')
+                    .createSignedUrl(fileName, 3600); // URL на 1 час
+
+                if (error) {
+                    throw new Error(`Ошибка получения signed URL: ${error.message}`);
                 }
+                signedUrl = data.signedUrl;
+                console.log('Signed URL получен:', signedUrl);
             } catch (error) {
                 console.error('Ошибка получения signed URL:', error);
                 this.showNotification('Не удалось получить доступ к видео, переключаемся на следующее...');
@@ -843,26 +833,46 @@ class VideoManager {
         const file = this.state.uploadedFile;
         const description = document.getElementById('videoDescription')?.value || '';
         console.log('Загрузка файла:', file.name, file.type, file.size);
-        console.log('telegram_id:', this.state.userId, 'Описание:', description);
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('telegram_id', this.state.userId);
-        formData.append('description', description);
 
         try {
-            console.log('Отправка запроса на загрузку видео:', `${this.apiBaseUrl}/upload-video`);
-            const response = await fetch(`${this.apiBaseUrl}/upload-video`, {
-                method: 'POST',
-                body: formData,
-            });
-            console.log('Ответ /api/upload-video:', response.status);
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка загрузки видео: ${response.status} ${errorText}`);
+            const fileName = `${this.state.userId}_${Date.now()}_${file.name}`;
+            const { error: uploadError } = await this.supabase.storage
+                .from('videos')
+                .upload(fileName, file);
+
+            if (uploadError) {
+                throw new Error(`Ошибка загрузки в Storage: ${uploadError.message}`);
             }
-            const { url, message } = await response.json();
-            console.log('Полученный URL:', url);
+
+            const { publicUrl } = this.supabase.storage
+                .from('videos')
+                .getPublicUrl(fileName);
+
+            const { error: insertError } = await this.supabase
+                .from('publicVideos')
+                .insert({
+                    url: publicUrl,
+                    telegram_id: this.state.userId,
+                    description,
+                    author_id: this.state.userId,
+                    views: [],
+                    likes: 0,
+                    dislikes: 0,
+                    user_likes: [],
+                    user_dislikes: [],
+                    comments: [],
+                    shares: 0,
+                    view_time: 0,
+                    replays: 0,
+                    duration: this.uploadPreview.duration || 0,
+                    last_position: 0,
+                    chat_messages: [],
+                    is_public: true,
+                });
+
+            if (insertError) {
+                throw new Error(`Ошибка сохранения метаданных: ${insertError.message}`);
+            }
 
             this.showNotification('Видео успешно опубликовано!');
             this.uploadModal.classList.remove('visible');
@@ -875,10 +885,10 @@ class VideoManager {
 
             const newVideoData = this.createEmptyVideoData(this.state.userId);
             newVideoData.description = description;
-            this.state.playlist.unshift({ url, data: newVideoData });
+            this.state.playlist.unshift({ url: publicUrl, data: newVideoData });
             this.state.currentIndex = 0;
             this.loadVideo();
-            this.addVideoToManagementList(url, description);
+            this.addVideoToManagementList(publicUrl, description);
         } catch (error) {
             console.error('Ошибка публикации видео:', error);
             this.showNotification(`Ошибка: ${error.message}`);
@@ -934,27 +944,21 @@ class VideoManager {
         );
         if (newDescription !== null) {
             try {
-                console.log('Отправка запроса на обновление описания:', `${this.apiBaseUrl}/update-video`);
-                const response = await fetch(`${this.apiBaseUrl}/update-video`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        url,
-                        telegram_id: this.state.userId,
-                        description: newDescription,
-                    }),
-                });
-                console.log('Ответ /api/update-video:', response.status);
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Ошибка обновления видео: ${response.status} ${errorText}`);
+                const { error } = await this.supabase
+                    .from('publicVideos')
+                    .update({ description: newDescription })
+                    .eq('url', url)
+                    .eq('telegram_id', this.state.userId);
+
+                if (error) {
+                    throw new Error(`Ошибка обновления: ${error.message}`);
                 }
+
                 this.state.playlist[index].data.description = newDescription;
                 const videoItem = document.querySelector(`.video-item [data-url="${url}"]`).parentElement;
                 videoItem.querySelector('span').textContent = newDescription || 'Без описания';
                 this.showNotification('Описание обновлено!');
                 if (this.state.currentIndex === index) this.updateDescription();
-                await this.loadInitialVideos();
             } catch (error) {
                 console.error('Ошибка обновления видео:', error);
                 this.showNotification(`Ошибка: ${error.message}`);
@@ -964,17 +968,25 @@ class VideoManager {
 
     async deleteVideo(url) {
         try {
-            console.log('Отправка запроса на удаление видео:', `${this.apiBaseUrl}/delete-video`);
-            const response = await fetch(`${this.apiBaseUrl}/delete-video`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, telegram_id: this.state.userId }),
-            });
-            console.log('Ответ /api/delete-video:', response.status);
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка удаления видео: ${response.status} ${errorText}`);
+            const fileName = url.split('/').pop();
+            const { error: storageError } = await this.supabase.storage
+                .from('videos')
+                .remove([fileName]);
+
+            if (storageError) {
+                throw new Error(`Ошибка удаления из Storage: ${storageError.message}`);
             }
+
+            const { error: deleteError } = await this.supabase
+                .from('publicVideos')
+                .delete()
+                .eq('url', url)
+                .eq('telegram_id', this.state.userId);
+
+            if (deleteError) {
+                throw new Error(`Ошибка удаления из publicVideos: ${deleteError.message}`);
+            }
+
             this.showNotification('Видео успешно удалено!');
             const index = this.state.playlist.findIndex(v => v.url === url);
             if (index !== -1) {
@@ -1162,9 +1174,8 @@ class VideoManager {
         }
         const videoData = this.state.playlist[index].data;
         const url = this.state.playlist[index].url;
+
         const cacheData = {
-            url,
-            telegram_id: this.state.userId,
             views: Array.from(videoData.views),
             likes: videoData.likes,
             dislikes: videoData.dislikes,
@@ -1183,44 +1194,20 @@ class VideoManager {
         localStorage.setItem(`videoData_${url}`, JSON.stringify(cacheData));
 
         try {
-            console.log('Проверка существования видео:', `${this.apiBaseUrl}/public-videos`);
-            const response = await fetch(`${this.apiBaseUrl}/public-videos`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-            });
-            if (!response.ok) throw new Error('Не удалось проверить видео');
-            const videos = await response.json();
-            const videoExists = videos.some(v => v.url === url);
-            if (!videoExists) {
-                console.warn('Видео не найдено на сервере:', url);
-                return;
-            }
-        } catch (error) {
-            console.error('Ошибка проверки видео:', error);
-            return;
-        }
+            console.log('Обновление данных в Supabase для видео:', url);
+            const { error } = await this.supabase
+                .from('publicVideos')
+                .update(cacheData)
+                .eq('url', url)
+                .eq('telegram_id', this.state.userId);
 
-        console.log('Отправляемые данные для обновления:', cacheData);
-        try {
-            console.log('Отправка запроса на обновление видео:', `${this.apiBaseUrl}/update-video`);
-            const response = await fetch(`${this.apiBaseUrl}/update-video`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(cacheData),
-            });
-            console.log('Ответ /api/update-video:', response.status);
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка обновления данных: ${response.status} ${errorText}`);
+            if (error) {
+                throw new Error(`Ошибка обновления: ${error.message}`);
             }
-            console.log('Данные сохранены на сервере');
+            console.log('Данные успешно сохранены в Supabase');
         } catch (error) {
             console.error('Ошибка обновления данных:', error);
-            if (error.message.includes('403')) {
-                console.warn('Видео не найдено или нет доступа, продолжаем локальное кэширование');
-            } else {
-                this.showNotification(`Не удалось сохранить данные: ${error.message}`);
-            }
+            this.showNotification(`Не удалось сохранить данные: ${error.message}`);
         }
     }, 5000);
 
@@ -1268,27 +1255,21 @@ class VideoManager {
             return;
         }
 
-        console.log('Попытка скачать видео:', videoUrl);
+        console.log('Попытка скачать видео из Supabase:', videoUrl);
         this.uploadBtn.classList.add('downloading');
         this.uploadBtn.style.setProperty('--progress', '0%');
 
         try {
-            console.log(
-                'Отправка запроса на скачивание:',
-                `${this.apiBaseUrl}/download-video?url=${encodeURIComponent(videoUrl)}`
-            );
-            const response = await fetch(
-                `${this.apiBaseUrl}/download-video?url=${encodeURIComponent(videoUrl)}`,
-                { method: 'GET' }
-            );
-            console.log('Статус ответа:', response.status, response.statusText);
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Ошибка загрузки: ${response.status} ${errorText}`);
+            const fileName = videoUrl.split('/').pop();
+            const { data: signedData, error: signedError } = await this.supabase.storage
+                .from('videos')
+                .createSignedUrl(fileName, 3600);
+
+            if (signedError) {
+                throw new Error(`Ошибка получения signed URL: ${signedError.message}`);
             }
 
-            const { signedUrl } = await response.json();
-            const videoResponse = await fetch(signedUrl);
+            const videoResponse = await fetch(signedData.signedUrl);
             if (!videoResponse.ok) throw new Error('Ошибка загрузки видео по подписанной ссылке');
 
             const total = Number(videoResponse.headers.get('content-length')) || 0;
@@ -1417,7 +1398,6 @@ class VideoManager {
         e.preventDefault();
 
         if (!document.fullscreenElement) {
-            // Вход в полноэкранный режим
             const element = document.documentElement;
             if (element.requestFullscreen) {
                 element.requestFullscreen()
@@ -1444,7 +1424,6 @@ class VideoManager {
                 }
             }
         } else {
-            // Выход из полноэкранного режима
             document.exitFullscreen()
                 .then(() => {
                     document.body.classList.remove('fullscreen-mode');
@@ -1510,13 +1489,6 @@ class VideoManager {
             type === 'like' ? '<i class="fas fa-thumbs-up"></i>' : '<i class="fas fa-thumbs-down"></i>';
         this.reactionAnimation.classList.add('show');
         setTimeout(() => this.reactionAnimation.classList.remove('show'), 2000);
-    }
-
-    toggleSubmenu(e) {
-        e.stopPropagation();
-        this.state.isSubmenuOpen = !this.state.isSubmenuOpen;
-        this.submenuUpload.classList.toggle('active', this.state.isSubmenuOpen);
-        this.submenuChat.classList.toggle('active', this.state.isSubmenuOpen);
     }
 
     toggleReactionBarVisibility(e) {
@@ -1669,10 +1641,11 @@ class VideoManager {
             console.error('Плейлист пуст, обработка прогресса невозможна');
             return;
         }
-        this.video.currentTime = e.target.value;
+        const newTime = parseFloat(e.target.value);
+        this.video.currentTime = newTime;
         const videoData = this.state.playlist[this.state.currentIndex]?.data;
         if (videoData) {
-            videoData.lastPosition = this.video.currentTime;
+            videoData.lastPosition = newTime;
             this.updateVideoCache(this.state.currentIndex);
         }
     }
@@ -1689,6 +1662,10 @@ class VideoManager {
             this.swipeArea.addEventListener('mousedown', e => this.handleMouseStart(e));
             this.swipeArea.addEventListener('mousemove', this.throttle(e => this.handleMouseMove(e), 16));
             this.swipeArea.addEventListener('mouseup', e => this.handleMouseEnd(e));
+            this.swipeArea.addEventListener('dblclick', e => {
+                e.preventDefault();
+                this.toggleFullscreen(e);
+            });
         }
     }
 
@@ -1809,91 +1786,41 @@ class VideoManager {
         this.state.isSwiping = false;
     }
 
-showFloatingReaction(type, x, y) {
-    const reaction = document.createElement('div');
-    reaction.className = 'floating-reaction';
-    reaction.innerHTML = type === 'like' ? '👍' : '👎';
-    reaction.style.position = 'absolute';
-    reaction.style.left = `${x}px`;
-    reaction.style.top = `${y}px`;
-    reaction.style.fontSize = '24px';
-    reaction.style.zIndex = '1000';
-    reaction.style.pointerEvents = 'none';
-    document.body.appendChild(reaction);
+    showFloatingReaction(type, x, y) {
+        const reaction = document.createElement('div');
+        reaction.className = 'floating-reaction';
+        reaction.innerHTML = type === 'like' ? '👍' : '👎';
+        reaction.style.position = 'absolute';
+        reaction.style.left = `${x}px`;
+        reaction.style.top = `${y}px`;
+        reaction.style.fontSize = '24px';
+        reaction.style.zIndex = '1000';
+        reaction.style.pointerEvents = 'none';
+        document.body.appendChild(reaction);
 
-    let opacity = 1;
-    let offsetY = 0;
-    const animation = setInterval(() => {
-        offsetY -= 1;
-        opacity -= 0.02;
-        reaction.style.transform = `translateY(${offsetY}px)`;
-        reaction.style.opacity = opacity;
-        if (opacity <= 0) {
-            clearInterval(animation);
-            document.body.removeChild(reaction);
+        let opacity = 1;
+        let offsetY = 0;
+        const animation = setInterval(() => {
+            offsetY -= 1;
+            opacity -= 0.02;
+            reaction.style.transform = `translateY(${offsetY}px)`;
+            reaction.style.opacity = opacity;
+            if (opacity <= 0) {
+                clearInterval(animation);
+                document.body.removeChild(reaction);
+            }
+        }, 16);
+    }
+
+    toggleSubmenu(e) {
+        if (e) e.stopPropagation();
+        this.state.isSubmenuOpen = !this.state.isSubmenuOpen;
+        this.submenuUpload.classList.toggle('active', this.state.isSubmenuOpen);
+        this.submenuChat.classList.toggle('active', this.state.isSubmenuOpen);
+        if (this.state.isSubmenuOpen) {
+            console.log('Подменю открыто');
+        } else {
+            console.log('Подменю закрыто');
         }
-    }, 16);
-}
-
-toggleSubmenu(e) {
-    if (e) e.stopPropagation();
-    this.state.isSubmenuOpen = !this.state.isSubmenuOpen;
-    this.submenuUpload.classList.toggle('active', this.state.isSubmenuOpen);
-    this.submenuChat.classList.toggle('active', this.state.isSubmenuOpen);
-    if (this.state.isSubmenuOpen) {
-        console.log('Подменю открыто');
-    } else {
-        console.log('Подменю закрыто');
     }
 }
-
-handleProgressInput(e) {
-    if (!this.state.playlist || this.state.playlist.length === 0) {
-        console.error('Плейлист пуст, обработка прогресса невозможна');
-        return;
-    }
-    const newTime = parseFloat(e.target.value);
-    this.video.currentTime = newTime;
-    const videoData = this.state.playlist[this.state.currentIndex]?.data;
-    if (videoData) {
-        videoData.lastPosition = newTime;
-        this.updateVideoCache(this.state.currentIndex);
-    }
-}
-
-setupSwipeAndMouseEvents() {
-    if (this.swipeArea) {
-        this.swipeArea.addEventListener('touchstart', e => this.handleTouchStart(e), { passive: false });
-        this.swipeArea.addEventListener(
-            'touchmove',
-            this.throttle(e => this.handleTouchMove(e), 16),
-            { passive: false }
-        );
-        this.swipeArea.addEventListener('touchend', e => this.handleTouchEnd(e));
-        this.swipeArea.addEventListener('mousedown', e => this.handleMouseStart(e));
-        this.swipeArea.addEventListener('mousemove', this.throttle(e => this.handleMouseMove(e), 16));
-        this.swipeArea.addEventListener('mouseup', e => this.handleMouseEnd(e));
-        this.swipeArea.addEventListener('dblclick', e => {
-            e.preventDefault();
-            this.toggleFullscreen(e);
-        });
-    }
-}
-
-showPlayOverlay() {
-    if (this.playOverlay) {
-        this.playOverlay.style.display = 'block';
-        console.log('Показан оверлей воспроизведения');
-    } else {
-        console.warn('Оверлей воспроизведения не найден');
-    }
-}
-
-} // Закрываем класс VideoManager
-
-// Создаём экземпляр VideoManager и инициализируем его
-const videoManager = new VideoManager();
-videoManager.init().catch(error => {
-    console.error('Ошибка инициализации VideoManager:', error);
-    videoManager.showNotification('Не удалось запустить приложение: ' + error.message);
-});
