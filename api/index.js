@@ -7,7 +7,7 @@ const app = express();
 
 // Настройка CORS
 const allowedOrigins = [
-    'https://tg-clips.netlify.app',
+    'https://your-vercel-domain.vercel.app',
     'http://localhost:3000',
     'https://*.telegram.org'
 ];
