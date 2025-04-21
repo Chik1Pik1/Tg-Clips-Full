@@ -16,7 +16,7 @@
       "dest": "/api/index.js",
       "methods": ["GET", "POST", "OPTIONS"],
       "headers": {
-        "Access-Control-Allow-Origin": "https://your-vercel-domain.vercel.app",
+        "Access-Control-Allow-Origin": "https://tg-clips-xxx.vercel.app",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
         "Access-Control-Max-Age": "86400"
@@ -28,12 +28,6 @@
       "headers": {
         "Cache-Control": "public, max-age=0, must-revalidate"
       }
-    },
-    {
-      "src": "/public-videos",
-      "status": 404,
-      "headers": { "Content-Type": "application/json" },
-      "dest": "/api/not-found"
     }
   ]
 }
