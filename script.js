@@ -23,7 +23,7 @@ class VideoManager {
             endY: 0,
         };
         this.tg = window.Telegram?.WebApp;
-        this.apiBaseUrl = 'https://supabase-server-b9qvi18cu-andrejs-projects-02565dec.vercel.app/api';
+        this.apiBaseUrl = '/api';
         this.MAX_PRELOAD_SIZE = 3;
         this.MAX_PLAYLIST_SIZE = 10;
         this.DEFAULT_AVATAR_URL = 'https://via.placeholder.com/40';
