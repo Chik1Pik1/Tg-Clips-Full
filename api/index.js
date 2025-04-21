@@ -7,7 +7,7 @@ const app = express();
 
 // Настройка CORS
 const allowedOrigins = [
-    'https://tg-clips.vercel.app/',
+    'https://tg-clips-git-main-andrejs-projects-02565dec.vercel.app',
     'http://localhost:3000',
     'https://*.telegram.org'
 ];
