@@ -16,9 +16,4 @@
       "dest": "/dist/$1"
     }
   ],
-  "env": {
-    "VITE_SUPABASE_URL": "https://seckthcbnslsropswpik.supabase.co",
-    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlY2t0aGNibnNsc3JvcHN3cGlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMxNzU3ODMsImV4cCI6MjA1ODc1MTc4M30.JoI03vFuRd-7sApD4dZ-zeBfUQlZrzRg7jtz0HgnJyI",
-    "VITE_TELEGRAM_BOT_TOKEN": "7738302503:AAGAMhLO30IGu_pgP2mJsf-Y1xSFJ8Na3E8"
-  }
 }
