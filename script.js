@@ -23,7 +23,10 @@ class VideoManager {
             endY: 0,
         };
         this.tg = window.Telegram?.WebApp;
-        this.apiBaseUrl = '/api';
+        // Используем домен Vercel для продакшена
+        this.apiBaseUrl = window.location.hostname.includes('localhost')
+            ? 'http://localhost:3000/api'
+            : 'https://tg-clips-fra1-flm9z-1745242694445-9da66ce2b0fd.vercel.app/api';
         this.MAX_PRELOAD_SIZE = 3;
         this.MAX_PLAYLIST_SIZE = 10;
         this.DEFAULT_AVATAR_URL = 'https://via.placeholder.com/40';
@@ -44,7 +47,7 @@ class VideoManager {
     }
 
     async init() {
-        console.log('Скрипт обновлён, версия 19');
+        console.log('Скрипт обновлён, версия 20');
         if (this.tg?.initDataUnsafe?.user) {
             this.state.userId = String(this.tg.initDataUnsafe.user.id);
             console.log('Telegram инициализирован, userId:', this.state.userId);
@@ -105,6 +108,8 @@ class VideoManager {
         this.shareTelegram = document.getElementById('shareTelegram');
         this.copyLink = document.getElementById('copyLink');
         this.closeShare = document.getElementById('closeShare');
+        this.fullscreenBtn = document.querySelector('.fullscreen-btn');
+        this.playOverlay = document.getElementById('playOverlay');
         this.videoUpload = document.createElement('input');
         this.videoUpload.type = 'file';
         this.videoUpload.accept = 'video/mp4,video/quicktime,video/webm';
@@ -131,6 +136,7 @@ class VideoManager {
         bindButton(this.plusBtn, e => this.toggleSubmenu(e), '.plus-btn');
         bindButton(this.uploadBtn, e => this.downloadCurrentVideo(e), '.upload-btn');
         bindButton(this.toggleReactionBar, e => this.toggleReactionBarVisibility(e), '.toggle-reaction-bar');
+        bindButton(this.fullscreenBtn, e => this.toggleFullscreen(e), '.fullscreen-btn');
 
         if (this.video) {
             this.video.addEventListener('loadedmetadata', () => this.handleLoadedMetadata(), { once: true });
@@ -173,6 +179,15 @@ class VideoManager {
         bindButton(this.copyLink, () => this.copyVideoLink(), '#copyLink');
         bindButton(this.closeShare, () => this.shareModal.classList.remove('visible'), '#closeShare');
         bindButton(this.themeToggle, () => this.toggleTheme(), '.theme-toggle');
+
+        if (this.playOverlay) {
+            this.playOverlay.querySelector('button').addEventListener('click', () => {
+                this.video.play().then(() => {
+                    this.video.muted = false;
+                    this.playOverlay.style.display = 'none';
+                });
+            }, { once: true });
+        }
 
         const dragHandle = document.querySelector('.drag-handle');
         if (dragHandle) {
@@ -485,19 +500,7 @@ class VideoManager {
                         this.video.play().catch(err => {
                             console.error('Ошибка воспроизведения:', err);
                             if (err.name === 'NotAllowedError') {
-                                console.log('Требуется взаимодействие пользователя для воспроизведения');
-                                this.showNotification('Кликните на экран для воспроизведения');
-                                const onInteraction = () => {
-                                    this.video.play().catch(e => {
-                                        console.error('Повторная ошибка воспроизведения:', e);
-                                        this.showNotification('Не удалось воспроизвести видео! Переключаемся...');
-                                        this.playNextVideo();
-                                    });
-                                    document.removeEventListener('click', onInteraction);
-                                    document.removeEventListener('touchstart', onInteraction);
-                                };
-                                document.addEventListener('click', onInteraction, { once: true });
-                                document.addEventListener('touchstart', onInteraction, { once: true });
+                                this.showPlayOverlay();
                             } else {
                                 this.showNotification('Не удалось воспроизвести видео! Переключаемся...');
                                 this.playNextVideo();
@@ -524,6 +527,12 @@ class VideoManager {
             this.updateDescription();
             this.preloadNextVideo();
         }, 300);
+    }
+
+    showPlayOverlay() {
+        if (this.playOverlay) {
+            this.playOverlay.style.display = 'block';
+        }
     }
 
     showResumePrompt(lastPosition) {
@@ -1403,6 +1412,51 @@ class VideoManager {
         }
     }
 
+    toggleFullscreen(e) {
+        e.stopPropagation();
+        e.preventDefault();
+
+        if (!document.fullscreenElement) {
+            // Вход в полноэкранный режим
+            const element = document.documentElement;
+            if (element.requestFullscreen) {
+                element.requestFullscreen()
+                    .then(() => {
+                        document.body.classList.add('fullscreen-mode');
+                        this.showNotification('Полноэкранный режим включён');
+                        if (this.tg) {
+                            this.tg.expand();
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Ошибка входа в полноэкранный режим:', err);
+                        this.showNotification('Полноэкранный режим не поддерживается');
+                        if (this.tg) {
+                            this.tg.expand();
+                            this.showNotification('Приложение расширено в Telegram');
+                        }
+                    });
+            } else {
+                this.showNotification('Полноэкранный режим не поддерживается вашим браузером');
+                if (this.tg) {
+                    this.tg.expand();
+                    this.showNotification('Приложение расширено в Telegram');
+                }
+            }
+        } else {
+            // Выход из полноэкранного режима
+            document.exitFullscreen()
+                .then(() => {
+                    document.body.classList.remove('fullscreen-mode');
+                    this.showNotification('Выход из полноэкранного режима');
+                })
+                .catch(err => {
+                    console.error('Ошибка выхода из полноэкранного режима:', err);
+                    this.showNotification('Не удалось выйти из полноэкранного режима');
+                });
+        }
+    }
+
     handleReaction(type, e) {
         if (e) e.stopPropagation();
         if (!this.state.userId) {
@@ -1523,42 +1577,6 @@ class VideoManager {
         this.toggleSubmenu();
     }
 
-    toggleFullscreen(e) {
-        e.stopPropagation();
-        e.preventDefault();
-
-        if (this.tg && this.tg.requestFullscreen) {
-            this.tg
-                .requestFullscreen()
-                .then(() => {
-                    document.body.classList.add('telegram-fullscreen');
-                    this.showNotification('Полноэкранный режим включён');
-                })
-                .catch(err => {
-                    console.error('Ошибка полноэкранного режима Telegram:', err);
-                    this.tg.expand();
-                    this.showNotification('Полноэкранный режим недоступен, использовано расширение');
-                });
-        } else if (!this.tg) {
-            if (!document.fullscreenElement) {
-                document.documentElement
-                    .requestFullscreen()
-                    .then(() => document.body.classList.add('fullscreen-mode'))
-                    .catch(err => {
-                        console.error('Ошибка полноэкранного режима:', err);
-                        this.showNotification('Полноэкранный режим не поддерживается');
-                    });
-            } else {
-                document
-                    .exitFullscreen()
-                    .then(() => document.body.classList.remove('fullscreen-mode'))
-                    .catch(err => console.error('Ошибка выхода из полноэкранного режима:', err));
-            }
-        } else {
-            this.showNotification('Полноэкранный режим недоступен');
-        }
-    }
-
     handleLoadedMetadata() {
         if (!this.video) return;
         this.video.muted = true;
@@ -1576,22 +1594,11 @@ class VideoManager {
                 .play()
                 .then(() => {
                     this.video.muted = false;
+                    if (this.playOverlay) this.playOverlay.style.display = 'none';
                 })
                 .catch(err => {
                     console.error('Ошибка воспроизведения:', err);
-                    this.showNotification('Кликните на экран для воспроизведения со звуком');
-                    const onInteraction = () => {
-                        this.video
-                            .play()
-                            .then(() => {
-                                this.video.muted = false;
-                            })
-                            .catch(e => console.error('Повторная ошибка воспроизведения:', e));
-                        document.removeEventListener('click', onInteraction);
-                        document.removeEventListener('touchstart', onInteraction);
-                    };
-                    document.addEventListener('click', onInteraction, { once: true });
-                    document.addEventListener('touchstart', onInteraction, { once: true });
+                    this.showPlayOverlay();
                 });
         };
 
@@ -1802,40 +1809,82 @@ class VideoManager {
         this.state.isSwiping = false;
     }
 
-    showFloatingReaction(type, x, y) {
-        const reaction = document.createElement('div');
-        reaction.className = 'floating-reaction';
-        reaction.innerHTML = type === 'like' ? '👍' : '👎';
-        reaction.style.position = 'absolute';
-        reaction.style.left = `${x}px`;
-        reaction.style.top = `${y}px`;
-        reaction.style.fontSize = '24px';
-        reaction.style.zIndex = '1000';
-        reaction.style.pointerEvents = 'none';
-        document.body.appendChild(reaction);
+showFloatingReaction(type, x, y) {
+    const reaction = document.createElement('div');
+    reaction.className = 'floating-reaction';
+    reaction.innerHTML = type === 'like' ? '👍' : '👎';
+    reaction.style.position = 'absolute';
+    reaction.style.left = `${x}px`;
+    reaction.style.top = `${y}px`;
+    reaction.style.fontSize = '24px';
+    reaction.style.zIndex = '1000';
+    reaction.style.pointerEvents = 'none';
+    document.body.appendChild(reaction);
 
-        // Анимация: плавное перемещение вверх и исчезновение
-        let opacity = 1;
-        let offsetY = 0;
-        const animation = setInterval(() => {
-            offsetY -= 1;
-            opacity -= 0.02;
-            reaction.style.transform = `translateY(${offsetY}px)`;
-            reaction.style.opacity = opacity;
-            if (opacity <= 0) {
-                clearInterval(animation);
-                document.body.removeChild(reaction);
-            }
-        }, 16);
-
-        // Ограничение количества реакций
-        const maxReactions = 10;
-        const existingReactions = document.querySelectorAll('.floating-reaction');
-        if (existingReactions.length > maxReactions) {
-            existingReactions[0].remove();
+    let opacity = 1;
+    let offsetY = 0;
+    const animation = setInterval(() => {
+        offsetY -= 1;
+        opacity -= 0.02;
+        reaction.style.transform = `translateY(${offsetY}px)`;
+        reaction.style.opacity = opacity;
+        if (opacity <= 0) {
+            clearInterval(animation);
+            document.body.removeChild(reaction);
         }
+    }, 16);
+}
+
+toggleSubmenu(e) {
+    if (e) e.stopPropagation();
+    this.state.isSubmenuOpen = !this.state.isSubmenuOpen;
+    this.submenuUpload.classList.toggle('active', this.state.isSubmenuOpen);
+    this.submenuChat.classList.toggle('active', this.state.isSubmenuOpen);
+    if (this.state.isSubmenuOpen) {
+        console.log('Подменю открыто');
+    } else {
+        console.log('Подменю закрыто');
     }
 }
-    
-const videoManager = new VideoManager();
-videoManager.init();
+
+handleProgressInput(e) {
+    if (!this.state.playlist || this.state.playlist.length === 0) {
+        console.error('Плейлист пуст, обработка прогресса невозможна');
+        return;
+    }
+    const newTime = parseFloat(e.target.value);
+    this.video.currentTime = newTime;
+    const videoData = this.state.playlist[this.state.currentIndex]?.data;
+    if (videoData) {
+        videoData.lastPosition = newTime;
+        this.updateVideoCache(this.state.currentIndex);
+    }
+}
+
+setupSwipeAndMouseEvents() {
+    if (this.swipeArea) {
+        this.swipeArea.addEventListener('touchstart', e => this.handleTouchStart(e), { passive: false });
+        this.swipeArea.addEventListener(
+            'touchmove',
+            this.throttle(e => this.handleTouchMove(e), 16),
+            { passive: false }
+        );
+        this.swipeArea.addEventListener('touchend', e => this.handleTouchEnd(e));
+        this.swipeArea.addEventListener('mousedown', e => this.handleMouseStart(e));
+        this.swipeArea.addEventListener('mousemove', this.throttle(e => this.handleMouseMove(e), 16));
+        this.swipeArea.addEventListener('mouseup', e => this.handleMouseEnd(e));
+        this.swipeArea.addEventListener('dblclick', e => {
+            e.preventDefault();
+            this.toggleFullscreen(e);
+        });
+    }
+}
+
+showPlayOverlay() {
+    if (this.playOverlay) {
+        this.playOverlay.style.display = 'block';
+        console.log('Показан оверлей воспроизведения');
+    } else {
+        console.warn('Оверлей воспроизведения не найден');
+    }
+}
