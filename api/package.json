@@ -1,15 +1,16 @@
 {
-  "name": "supabase-server",
+  "name": "tg-clips-full",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "api/index.js",
   "scripts": {
-    "start": "vercel dev",
+    "start": "node api/index.js",
+    "dev": "vercel dev",
     "test": "jest"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "TG Clips: Frontend and Backend",
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
     "cors": "^2.8.5",
