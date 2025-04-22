@@ -1,3 +1,5 @@
+import { createClient } from '@supabase/supabase-js';
+
 class VideoManager {
     constructor() {
         this.state = {
