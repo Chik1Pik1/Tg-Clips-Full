@@ -5,18 +5,16 @@
       "src": "package.json",
       "use": "@vercel/node",
       "config": {
-        "distDir": "dist"
+        "installCommand": "npm install",
+        "buildCommand": "npm run build",
+        "outputDirectory": "dist"
       }
-    },
-    {
-      "src": "dist/**/*",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/assets/index.html"
+      "dest": "/index.html"
     }
   ]
 }
