@@ -10,7 +10,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist', // Папка для сборки
-    assetsDir: 'assets', // Папка для JS/CSS (не для index.html)
+    assetsDir: 'assets', // Папка для JS/CSS
     sourcemap: true, // Для отладки
     rollupOptions: {
       input: './index.html' // Явно указываем точку входа
