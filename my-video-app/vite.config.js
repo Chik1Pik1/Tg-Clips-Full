@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
 
 export default defineConfig({
   base: '/', // Базовый путь для Vercel
@@ -11,15 +10,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist', // Папка для сборки
-    assetsDir: 'assets', // Папка для JS/CSS
+    assetsDir: 'assets', // Папка для JS/CSS (не для index.html)
     sourcemap: true, // Для отладки
     rollupOptions: {
-      input: resolve(__dirname, 'index.html'), // Явно указываем путь к index.html
-      output: {
-        entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash][extname]'
-      }
+      input: './index.html' // Явно указываем точку входа
     }
   }
 });
